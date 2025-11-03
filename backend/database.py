@@ -1,0 +1,117 @@
+"""
+Database connection management for PostgreSQL and Neo4j
+"""
+
+import logging
+from typing import Optional
+from contextlib import asynccontextmanager
+
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from neo4j import AsyncGraphDatabase, AsyncDriver
+import redis.asyncio as redis
+
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+# SQLAlchemy setup for PostgreSQL
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Neo4j driver
+neo4j_driver: Optional[AsyncDriver] = None
+
+# Redis client
+redis_client: Optional[redis.Redis] = None
+
+
+async def init_databases():
+    """Initialize database connections"""
+    global neo4j_driver, redis_client
+    
+    # Initialize Neo4j
+    try:
+        neo4j_driver = AsyncGraphDatabase.driver(
+            settings.NEO4J_URI,
+            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+        )
+        # Test connection
+        async with neo4j_driver.session() as session:
+            result = await session.run("RETURN 1")
+            await result.single()
+        logger.info("Neo4j connection established")
+    except Exception as e:
+        logger.error(f"Failed to connect to Neo4j: {e}")
+        raise
+    
+    # Initialize Redis
+    try:
+        redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        await redis_client.ping()
+        logger.info("Redis connection established")
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {e}. Continuing without cache.")
+        redis_client = None
+    
+    # Create PostgreSQL tables
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("PostgreSQL tables created/verified")
+    except Exception as e:
+        logger.error(f"Failed to create PostgreSQL tables: {e}")
+        raise
+
+
+async def close_databases():
+    """Close database connections"""
+    global neo4j_driver, redis_client
+    
+    if neo4j_driver:
+        await neo4j_driver.close()
+        logger.info("Neo4j connection closed")
+    
+    if redis_client:
+        await redis_client.close()
+        logger.info("Redis connection closed")
+
+
+def get_db() -> Session:
+    """
+    Dependency for getting PostgreSQL database session
+    Usage: db: Session = Depends(get_db)
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+async def get_neo4j_session():
+    """
+    Dependency for getting Neo4j session
+    Usage: neo4j = Depends(get_neo4j_session)
+    """
+    if not neo4j_driver:
+        raise RuntimeError("Neo4j driver not initialized")
+    
+    async with neo4j_driver.session() as session:
+        yield session
+
+
+async def get_redis():
+    """
+    Dependency for getting Redis client
+    Usage: cache = Depends(get_redis)
+    """
+    if not redis_client:
+        return None
+    return redis_client

@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  /* Light Mode Colors */
+  --background: 255 255 255;
+  --foreground: 10 10 10;
+  --card: 250 250 250;
+  --card-foreground: 10 10 10;
+  --primary: 10 10 10;
+  --primary-foreground: 255 255 255;
+  --secondary: 245 245 245;
+  --secondary-foreground: 10 10 10;
+  --muted: 245 245 245;
+  --muted-foreground: 115 115 115;
+  --accent: 245 245 245;
+  --accent-foreground: 10 10 10;
+  --border: 230 230 230;
+  --input: 230 230 230;
+  --ring: 10 10 10;
+}
+
+.dark {
+  /* Dark Mode Colors - Origin Style */
+  --background: 15 15 15;
+  --foreground: 255 255 255;
+  --card: 25 25 25;
+  --card-foreground: 255 255 255;
+  --primary: 255 255 255;
+  --primary-foreground: 15 15 15;
+  --secondary: 30 30 30;
+  --secondary-foreground: 255 255 255;
+  --muted: 30 30 30;
+  --muted-foreground: 160 160 160;
+  --accent: 30 30 30;
+  --accent-foreground: 255 255 255;
+  --border: 45 45 45;
+  --input: 30 30 30;
+  --ring: 255 255 255;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+body {
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
+}
