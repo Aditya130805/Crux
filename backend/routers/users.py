@@ -4,12 +4,16 @@ Users router - handles user profile management
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import psycopg2
+import logging
 
-from database import get_db
+from database import get_db, get_neo4j_session
 from models import User, UserProfile
 from schemas import UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse
 from auth_utils import get_current_user
+from config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -129,3 +133,89 @@ async def update_user_profile(
     db.refresh(profile)
     
     return profile
+
+
+@router.delete("/account", status_code=status.HTTP_200_OK)
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    neo4j_session = Depends(get_neo4j_session)
+):
+    """
+    Delete user account and all associated data
+    This will permanently delete:
+    - User profile and settings
+    - All GitHub integration data
+    - All graph data in Neo4j
+    - All AI summaries
+    """
+    user_id = str(current_user.id)
+    username = current_user.username
+    
+    try:
+        # 1. Delete all GitHub-related data from PostgreSQL
+        logger.info(f"Deleting GitHub data for user {user_id}")
+        try:
+            with psycopg2.connect(settings.DATABASE_URL) as conn:
+                with conn.cursor() as cursor:
+                    # Delete all GitHub-related tables
+                    tables = [
+                        'github_user_repo_metrics',
+                        'github_monthly_metrics',
+                        'github_repositories',
+                        'github_organizations',
+                        'github_starred_repos',
+                        'github_user_profiles',
+                        'github_user_skills'
+                    ]
+                    for table in tables:
+                        cursor.execute(f'DELETE FROM {table} WHERE user_id = %s', (user_id,))
+                    conn.commit()
+                    logger.info(f"✅ Deleted GitHub data for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error deleting GitHub data: {e}")
+            # Continue with deletion even if GitHub cleanup fails
+        
+        # 2. Delete all user data from Neo4j
+        logger.info(f"Deleting Neo4j data for user {user_id}")
+        try:
+            # Delete user node and all its relationships
+            # Use DETACH DELETE to remove all relationships automatically
+            delete_query = """
+            MATCH (u:User {id: $user_id})
+            DETACH DELETE u
+            """
+            await neo4j_session.run(delete_query, user_id=user_id)
+            
+            # Also delete any projects, skills, or organizations that were exclusively created by this user
+            # This is a cleanup step to remove orphaned nodes
+            cleanup_query = """
+            // Delete projects that have no remaining CREATED relationships
+            MATCH (p:Project)
+            WHERE NOT EXISTS { (u:User)-[:CREATED]->(p) }
+            DETACH DELETE p
+            """
+            await neo4j_session.run(cleanup_query)
+            logger.info(f"✅ Deleted Neo4j data for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error deleting Neo4j data: {e}")
+            # Continue with deletion even if Neo4j cleanup fails
+        
+        # 3. Delete user from PostgreSQL (cascades to UserProfile and AISummary)
+        logger.info(f"Deleting user {user_id} from PostgreSQL")
+        db.delete(current_user)
+        db.commit()
+        logger.info(f"✅ Deleted user {user_id} from PostgreSQL")
+        
+        return {
+            "success": True,
+            "message": f"Account '{username}' has been permanently deleted"
+        }
+    
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting account: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete account. Please try again later."
+        )

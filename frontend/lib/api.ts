@@ -47,6 +47,9 @@ export const userAPI = {
   
   update: (username: string, data: { profile_visibility?: string }) =>
     api.put(`/api/users/${username}`, data),
+  
+  deleteAccount: () =>
+    api.delete('/api/users/account'),
 };
 
 // Graph endpoints

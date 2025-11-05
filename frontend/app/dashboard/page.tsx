@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Github, Sparkles, LogOut, User, Network as NetworkIcon, Linkedin, Globe, Twitter, GraduationCap, Briefcase, FolderGit2, Trash2, ChevronDown } from 'lucide-react'
+import { Plus, Github, Sparkles, LogOut, User, Network as NetworkIcon, Linkedin, Globe, Twitter, GraduationCap, Briefcase, FolderGit2, Trash2, ChevronDown, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -27,6 +27,8 @@ export default function DashboardPage() {
   const [syncing, setSyncing] = useState(false)
   const [generatingSummary, setGeneratingSummary] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   
   // Collapsible sections state
   const [isBasicInfoOpen, setIsBasicInfoOpen] = useState(true)
@@ -292,12 +294,29 @@ export default function DashboardPage() {
       }
       
       await userAPI.updateProfile(profileData)
-      
+
       toast.success('Profile saved!', 'Your profile information has been updated successfully.')
     } catch (error: any) {
       toast.error('Failed to save profile', error.response?.data?.detail || 'An error occurred while saving your profile.')
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    if (!user) return
+    setDeletingAccount(true)
+    try {
+      await userAPI.deleteAccount()
+      toast.success('Account deleted', 'Your account has been permanently deleted.')
+      // Clear local storage and logout
+      localStorage.removeItem('crux_token')
+      logout()
+      // Redirect to home page
+      router.push('/')
+    } catch (error: any) {
+      toast.error('Failed to delete account', error.response?.data?.detail || 'An error occurred while deleting your account.')
+      setDeletingAccount(false)
     }
   }
 
@@ -1005,6 +1024,7 @@ export default function DashboardPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
+          className="mb-8"
         >
           <Card className="border-[rgb(var(--border))]">
             <CardHeader>
@@ -1030,6 +1050,90 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Account Deletion - Danger Zone */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+        >
+          <Card className="border-[rgb(var(--danger))]/20 bg-[rgb(var(--danger))]/5">
+            <CardHeader>
+              <CardTitle className="text-2xl font-serif text-[rgb(var(--danger))] flex items-center gap-2">
+                <AlertTriangle className="h-6 w-6" />
+                Danger Zone
+              </CardTitle>
+              <CardDescription className="text-[rgb(var(--danger))]/80">
+                Permanently delete your account and all associated data. This action cannot be undone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-sm text-[rgb(var(--muted-foreground))]">
+                  Deleting your account will permanently remove:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-sm text-[rgb(var(--muted-foreground))] ml-2">
+                  <li>Your profile and all personal information</li>
+                  <li>All GitHub integration data and metrics</li>
+                  <li>Your professional graph and all connections</li>
+                  <li>All AI-generated summaries</li>
+                </ul>
+                <div className="pt-4">
+                  {!showDeleteConfirm ? (
+                    <Button
+                      variant="destructive"
+                      className="w-full h-12 rounded-xl text-base"
+                      onClick={() => setShowDeleteConfirm(true)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Account
+                    </Button>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="p-4 rounded-xl bg-[rgb(var(--danger))]/10 border border-[rgb(var(--danger))]/20">
+                        <p className="text-sm font-semibold text-[rgb(var(--danger))] mb-2">
+                          Are you absolutely sure?
+                        </p>
+                        <p className="text-sm text-[rgb(var(--muted-foreground))]">
+                          This action cannot be undone. All your data will be permanently deleted.
+                        </p>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button
+                          variant="outline"
+                          className="flex-1 h-12 rounded-xl"
+                          onClick={() => setShowDeleteConfirm(false)}
+                          disabled={deletingAccount}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="flex-1 h-12 rounded-xl"
+                          onClick={handleDeleteAccount}
+                          disabled={deletingAccount}
+                        >
+                          {deletingAccount ? (
+                            <>
+                              <span className="animate-spin mr-2">⏳</span>
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Yes, Delete My Account
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
       </div>
 
     </div>
