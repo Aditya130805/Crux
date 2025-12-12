@@ -38,14 +38,17 @@ app = FastAPI(
 )
 
 # CORS configuration
+# Build CORS origins list from config
+cors_origins = settings.CORS_ORIGINS.copy()
+if settings.CORS_ORIGINS_EXTRA:
+    # Add extra origins from environment variable (comma-separated)
+    # Example: CORS_ORIGINS_EXTRA=https://app.vercel.app,https://crux.io
+    extra_origins = [origin.strip() for origin in settings.CORS_ORIGINS_EXTRA.split(",") if origin.strip()]
+    cors_origins.extend(extra_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://crux.io",
-        "https://*.vercel.app"
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

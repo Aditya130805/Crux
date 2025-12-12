@@ -46,6 +46,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000"
     ]
     
+    # Allow CORS origins to be set via environment variable (comma-separated)
+    # For production, set: CORS_ORIGINS_EXTRA=https://your-app.vercel.app,https://crux.io
+    CORS_ORIGINS_EXTRA: str = ""
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
