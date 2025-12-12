@@ -41,7 +41,8 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
                 detail="Username already taken"
             )
     
-    # Create new user
+    # Create new user with transaction handling
+    # Transaction ensures atomicity: either all operations succeed or none do
     try:
         hashed_password = get_password_hash(user_data.password)
         new_user = User(
@@ -50,6 +51,8 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
             password_hash=hashed_password
         )
         db.add(new_user)
+        # Commit is handled by get_db() dependency, but we can commit explicitly here
+        # for clarity. If an exception occurs, get_db() will rollback automatically.
         db.commit()
         db.refresh(new_user)
         
@@ -63,6 +66,7 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
         )
     
     except IntegrityError:
+        # Explicit rollback on constraint violation (e.g., duplicate email/username)
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

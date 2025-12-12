@@ -44,7 +44,7 @@ class UserProfile(Base):
     __tablename__ = "user_profiles"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     
     # Basic Information
     full_name = Column(String(255), nullable=True)
@@ -79,10 +79,10 @@ class AISummary(Base):
     __tablename__ = "ai_summaries"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     headline = Column(Text, nullable=True)
     narrative = Column(Text, nullable=True)
-    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    generated_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     
     # Relationship
     user = relationship("User", back_populates="ai_summaries")

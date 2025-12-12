@@ -4,6 +4,7 @@ Stores user-specific GitHub metrics in PostgreSQL
 """
 
 import psycopg2
+from psycopg2 import extensions
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
@@ -27,7 +28,7 @@ class GitHubMetricsStorage:
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_repositories (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                             repo_id BIGINT NOT NULL,
                             repo_name VARCHAR(255) NOT NULL,
                             repo_full_name VARCHAR(255) NOT NULL,
@@ -51,12 +52,18 @@ class GitHubMetricsStorage:
                             UNIQUE(user_id, repo_id)
                         )
                     ''')
+                    # Indexes for github_repositories
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_repos_user_id ON github_repositories(user_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_repos_repo_id ON github_repositories(repo_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_repos_user_repo ON github_repositories(user_id, repo_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_repos_updated_at ON github_repositories(updated_at DESC)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_repos_language ON github_repositories(language) WHERE language IS NOT NULL')
                     
                     # User contribution metrics per repo (daily snapshots)
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_user_repo_metrics (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                             repo_id BIGINT NOT NULL,
                             metric_date DATE NOT NULL,
                             commits INT DEFAULT 0,
@@ -71,12 +78,17 @@ class GitHubMetricsStorage:
                             UNIQUE(user_id, repo_id, metric_date)
                         )
                     ''')
+                    # Indexes for github_user_repo_metrics
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_repo_metrics_user_id ON github_user_repo_metrics(user_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_repo_metrics_user_repo ON github_user_repo_metrics(user_id, repo_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_repo_metrics_date ON github_user_repo_metrics(metric_date DESC)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_repo_metrics_user_date ON github_user_repo_metrics(user_id, metric_date DESC)')
                     
                     # Monthly aggregated metrics per repo
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_monthly_metrics (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                             repo_id BIGINT NOT NULL,
                             year INT NOT NULL,
                             month INT NOT NULL,
@@ -93,12 +105,18 @@ class GitHubMetricsStorage:
                             UNIQUE(user_id, repo_id, year, month)
                         )
                     ''')
+                    # Indexes for github_monthly_metrics - critical for analytics queries
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_monthly_metrics_user_id ON github_monthly_metrics(user_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_monthly_metrics_user_repo ON github_monthly_metrics(user_id, repo_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_monthly_metrics_year_month ON github_monthly_metrics(year DESC, month DESC)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_monthly_metrics_user_year_month ON github_monthly_metrics(user_id, year DESC, month DESC)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_monthly_metrics_repo_year_month ON github_monthly_metrics(repo_id, year DESC, month DESC)')
                     
                     # Organizations
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_organizations (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                             org_id BIGINT NOT NULL,
                             org_login VARCHAR(255) NOT NULL,
                             org_name VARCHAR(255),
@@ -108,12 +126,14 @@ class GitHubMetricsStorage:
                             UNIQUE(user_id, org_id)
                         )
                     ''')
+                    # Indexes for github_organizations
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_orgs_user_id ON github_organizations(user_id)')
                     
                     # Starred repositories
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_starred_repos (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                             repo_id BIGINT NOT NULL,
                             repo_name VARCHAR(255) NOT NULL,
                             repo_full_name VARCHAR(255) NOT NULL,
@@ -129,7 +149,7 @@ class GitHubMetricsStorage:
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_user_profiles (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL UNIQUE,
+                            user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
                             github_username VARCHAR(255) NOT NULL,
                             followers INT DEFAULT 0,
                             following INT DEFAULT 0,
@@ -143,12 +163,14 @@ class GitHubMetricsStorage:
                             last_synced_at TIMESTAMPTZ DEFAULT NOW()
                         )
                     ''')
+                    # Indexes for github_user_profiles (user_id is already unique, but add index for lookups)
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_user_profiles_user_id ON github_user_profiles(user_id)')
                     
                     # Skills/Technologies
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS github_user_skills (
                             id SERIAL PRIMARY KEY,
-                            user_id UUID NOT NULL,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                             skill_name VARCHAR(100) NOT NULL,
                             skill_type VARCHAR(50),
                             repo_count INT DEFAULT 1,
@@ -156,6 +178,9 @@ class GitHubMetricsStorage:
                             UNIQUE(user_id, skill_name)
                         )
                     ''')
+                    # Indexes for github_user_skills
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_skills_user_id ON github_user_skills(user_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_github_skills_last_used ON github_user_skills(last_used_at DESC)')
                     
                     conn.commit()
                     logger.info("✅ GitHub data tables initialized")
@@ -164,9 +189,16 @@ class GitHubMetricsStorage:
             raise
     
     def store_repository(self, user_id: str, repo_data: Dict[str, Any]):
-        """Store comprehensive repository data"""
+        """
+        Store comprehensive repository data
+        
+        Uses parameterized queries to prevent SQL injection.
+        Transaction ensures atomicity: either the insert/update succeeds or fails completely.
+        """
         try:
             with psycopg2.connect(self.connection_string) as conn:
+                # Set isolation level explicitly (READ COMMITTED is default)
+                conn.set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
                 with conn.cursor() as cursor:
                     cursor.execute('''
                         INSERT INTO github_repositories (
@@ -403,6 +435,15 @@ class GitHubMetricsStorage:
     def get_monthly_metrics(self, user_id: str, repo_ids: List[int] = None, start_year: int = None, start_month: int = None):
         """
         Retrieve monthly metrics with optional filters
+        
+        This query benefits from indexes:
+        - idx_monthly_metrics_user_id: Fast lookup by user_id
+        - idx_monthly_metrics_user_year_month: Optimizes time range queries
+        - idx_monthly_metrics_user_repo: Optimizes repo filtering
+        
+        Uses parameterized queries (%s placeholders) to prevent SQL injection.
+        READ COMMITTED isolation ensures we see committed data from other transactions.
+        
         Args:
             user_id: User UUID
             repo_ids: List of repo IDs to filter by (None = all repos)
@@ -411,7 +452,9 @@ class GitHubMetricsStorage:
         """
         try:
             with psycopg2.connect(self.connection_string) as conn:
+                conn.set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
                 with conn.cursor() as cursor:
+                    # Parameterized query - prevents SQL injection
                     query = '''
                         SELECT 
                             m.*,
@@ -426,16 +469,19 @@ class GitHubMetricsStorage:
                     params = [user_id]
                     
                     if repo_ids:
+                        # Safe parameterized IN clause - prevents SQL injection
                         placeholders = ','.join(['%s'] * len(repo_ids))
                         query += f' AND m.repo_id IN ({placeholders})'
                         params.extend(repo_ids)
                     
                     if start_year and start_month:
+                        # Parameterized date range - prevents SQL injection
                         query += ' AND (m.year > %s OR (m.year = %s AND m.month >= %s))'
                         params.extend([start_year, start_year, start_month])
                     
                     query += ' ORDER BY m.year DESC, m.month DESC, r.repo_name'
                     
+                    # Execute with parameters - SQLAlchemy/psycopg2 handles escaping
                     cursor.execute(query, params)
                     columns = [desc[0] for desc in cursor.description]
                     results = [dict(zip(columns, row)) for row in cursor.fetchall()]

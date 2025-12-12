@@ -449,7 +449,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* AI Summary */}
-        {summary && (
+        {summary ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -479,6 +479,44 @@ export default function DashboardPage() {
                   {summary.headline}
                 </h3>
                 <p className="text-[rgb(var(--muted-foreground))]">{summary.narrative}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="mb-8"
+          >
+            <Card className="border-[rgb(var(--border))]">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5" />
+                  <CardTitle className="text-2xl font-serif">AI Summary</CardTitle>
+                </div>
+                <CardDescription>
+                  Generate an intelligent summary of your professional profile using AI
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={handleGenerateSummary}
+                  disabled={generatingSummary}
+                  className="w-full h-12 rounded-xl text-base"
+                >
+                  {generatingSummary ? (
+                    <>
+                      <span className="animate-spin mr-2">⏳</span>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Generate AI Summary
+                    </>
+                  )}
+                </Button>
               </CardContent>
             </Card>
           </motion.div>

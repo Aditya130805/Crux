@@ -84,6 +84,7 @@ async def get_user_graph(
     OPTIONAL MATCH (n)-[r2]->(m)
     WHERE NOT m:User
     RETURN u, collect(DISTINCT n) as connected_nodes, 
+           collect(DISTINCT m) as target_nodes,
            collect(DISTINCT r1) as user_edges,
            collect(DISTINCT r2) as node_edges
     """
@@ -110,7 +111,7 @@ async def get_user_graph(
             }
         })
     
-    # Add connected nodes
+    # Add directly connected nodes
     for node in record["connected_nodes"]:
         if node:
             node_labels = list(node.labels)
@@ -125,7 +126,22 @@ async def get_user_graph(
                 }
             })
     
-    # Add edges
+    # Add target nodes from node-to-node relationships
+    for node in record["target_nodes"]:
+        if node and node["id"] not in [n["data"]["id"] for n in nodes]:
+            node_labels = list(node.labels)
+            node_type = node_labels[0] if node_labels else "Unknown"
+            node_dict = serialize_neo4j_dict(dict(node))
+            nodes.append({
+                "data": {
+                    "id": node_dict["id"],
+                    "label": node_dict.get("name", node_dict.get("institution", "Node")),
+                    "type": node_type,
+                    **{k: v for k, v in node_dict.items() if k not in ["id"]}
+                }
+            })
+    
+    # Add edges (existing code remains the same)
     for edge in record["user_edges"]:
         if edge:
             edge_dict = serialize_neo4j_dict(dict(edge))

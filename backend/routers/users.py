@@ -4,14 +4,12 @@ Users router - handles user profile management
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-import psycopg2
 import logging
 
 from database import get_db, get_neo4j_session
 from models import User, UserProfile
 from schemas import UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse
 from auth_utils import get_current_user
-from config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -129,6 +127,9 @@ async def update_user_profile(
     for field, value in update_data.items():
         setattr(profile, field, value)
     
+    # Commit transaction - ensures profile update is atomic
+    # With READ COMMITTED isolation, other concurrent reads will see the update
+    # only after this transaction commits
     db.commit()
     db.refresh(profile)
     
@@ -153,28 +154,9 @@ async def delete_account(
     username = current_user.username
     
     try:
-        # 1. Delete all GitHub-related data from PostgreSQL
-        logger.info(f"Deleting GitHub data for user {user_id}")
-        try:
-            with psycopg2.connect(settings.DATABASE_URL) as conn:
-                with conn.cursor() as cursor:
-                    # Delete all GitHub-related tables
-                    tables = [
-                        'github_user_repo_metrics',
-                        'github_monthly_metrics',
-                        'github_repositories',
-                        'github_organizations',
-                        'github_starred_repos',
-                        'github_user_profiles',
-                        'github_user_skills'
-                    ]
-                    for table in tables:
-                        cursor.execute(f'DELETE FROM {table} WHERE user_id = %s', (user_id,))
-                    conn.commit()
-                    logger.info(f"✅ Deleted GitHub data for user {user_id}")
-        except Exception as e:
-            logger.error(f"Error deleting GitHub data: {e}")
-            # Continue with deletion even if GitHub cleanup fails
+        # 1. GitHub data will be automatically deleted via CASCADE foreign key constraints
+        logger.info(f"Deleting user {user_id} (GitHub data will cascade)")
+        # No manual deletion needed - foreign key constraints handle it automatically
         
         # 2. Delete all user data from Neo4j
         logger.info(f"Deleting Neo4j data for user {user_id}")
@@ -201,11 +183,15 @@ async def delete_account(
             logger.error(f"Error deleting Neo4j data: {e}")
             # Continue with deletion even if Neo4j cleanup fails
         
-        # 3. Delete user from PostgreSQL (cascades to UserProfile and AISummary)
-        logger.info(f"Deleting user {user_id} from PostgreSQL")
+        # 3. Delete user from PostgreSQL
+        # Cascades automatically to UserProfile, AISummary, and all GitHub tables via foreign keys
+        # This is a critical transaction: all related data must be deleted atomically
+        logger.info(f"Deleting user {user_id} from PostgreSQL (will cascade to related tables)")
         db.delete(current_user)
+        # Commit the transaction - if this fails, all changes are rolled back
+        # READ COMMITTED isolation ensures other transactions see consistent state
         db.commit()
-        logger.info(f"✅ Deleted user {user_id} from PostgreSQL")
+        logger.info(f"✅ Successfully deleted user {user_id} and all associated data")
         
         return {
             "success": True,
