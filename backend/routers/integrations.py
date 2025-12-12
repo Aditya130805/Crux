@@ -10,7 +10,7 @@ import logging
 from typing import List
 from datetime import datetime, timezone, timedelta
 
-from database import get_db, get_neo4j_session
+from database import get_db
 from models import User
 from schemas import GitHubAuthResponse, GitHubCallbackRequest, GitHubSyncResponse
 from auth_utils import get_current_user
@@ -99,8 +99,7 @@ async def github_callback(
 
 @router.post("/github/sync", response_model=GitHubSyncResponse)
 async def sync_github(
-    current_user: User = Depends(get_current_user),
-    neo4j_session = Depends(get_neo4j_session)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Manually trigger GitHub repository sync
@@ -114,7 +113,6 @@ async def sync_github(
     return await sync_github_repos(
         current_user,
         current_user.github_access_token,
-        neo4j_session,
         current_user.github_username
     )
 
@@ -280,8 +278,7 @@ async def get_monthly_analytics_public(
 @router.post("/github/disconnect")
 async def github_disconnect(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    neo4j_session = Depends(get_neo4j_session)
+    db: Session = Depends(get_db)
 ):
     """
     Disconnect GitHub integration and optionally remove data
@@ -298,18 +295,10 @@ async def github_disconnect(
     current_user.github_access_token = None
     db.commit()
     
-    # Optionally: Remove GitHub-sourced data from Neo4j
-    # (Uncomment if you want to delete all GitHub data on disconnect)
-    # query = """
-    # MATCH (u:User {id: $user_id})-[:CREATED]->(p:Project {source: 'github'})
-    # DETACH DELETE p
-    # """
-    # await neo4j_session.run(query, user_id=str(current_user.id))
-    
     return {"success": True, "message": "GitHub disconnected successfully"}
 
 
-async def sync_github_repos(user: User, access_token: str, neo4j_session, github_username: str) -> GitHubSyncResponse:
+async def sync_github_repos(user: User, access_token: str, github_username: str) -> GitHubSyncResponse:
     """
     Fetch and import comprehensive GitHub data for the user:
     - Repositories (owned and contributed to)
@@ -360,21 +349,6 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
         
         repos = filtered_repos
         
-        # Get GitHub user profile for comprehensive metrics
-        user_query = """
-        MERGE (u:User {id: $user_id})
-        ON CREATE SET 
-            u.username = $username,
-            u.email = $email,
-            u.created_at = datetime()
-        """
-        await neo4j_session.run(
-            user_query,
-            user_id=str(user.id),
-            username=user.username,
-            email=user.email
-        )
-        
         projects_added = 0
         skills_set = set()
         
@@ -385,57 +359,6 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
             # Skip forks unless they have significant stars
             if repo.get("fork") and repo.get("stargazers_count", 0) < 10:
                 continue
-            
-            project_id = str(uuid.uuid4())
-            
-            # Create project node with comprehensive metrics
-            project_query = """
-            MATCH (u:User {id: $user_id})
-            MERGE (p:Project {url: $url})
-            ON CREATE SET 
-                p.id = $project_id,
-                p.name = $name,
-                p.description = $description,
-                p.source = 'github',
-                p.stars = $stars,
-                p.forks = $forks,
-                p.watchers = $watchers,
-                p.open_issues = $open_issues,
-                p.language = $language,
-                p.size = $size,
-                p.is_private = $is_private,
-                p.is_fork = $is_fork,
-                p.default_branch = $default_branch,
-                p.license = $license,
-                p.homepage = $homepage,
-                p.created_at = datetime($created_at),
-                p.updated_at = datetime($updated_at),
-                p.pushed_at = datetime($pushed_at)
-            MERGE (u)-[:CREATED {date: datetime($created_at)}]->(p)
-            """
-            
-            await neo4j_session.run(
-                project_query,
-                user_id=str(user.id),
-                project_id=project_id,
-                url=repo["html_url"],
-                name=repo["name"],
-                description=repo.get("description", ""),
-                stars=repo.get("stargazers_count", 0),
-                forks=repo.get("forks_count", 0),
-                watchers=repo.get("watchers_count", 0),
-                open_issues=repo.get("open_issues_count", 0),
-                language=repo.get("language", ""),
-                size=repo.get("size", 0),
-                is_private=repo.get("private", False),
-                is_fork=repo.get("fork", False),
-                default_branch=repo.get("default_branch", "main"),
-                license=repo.get("license", {}).get("name", "") if repo.get("license") else "",
-                homepage=repo.get("homepage", ""),
-                created_at=repo.get("created_at"),
-                updated_at=repo.get("updated_at"),
-                pushed_at=repo.get("pushed_at")
-            )
             
             # Store in PostgreSQL
             storage.store_repository(str(user.id), repo)
@@ -449,25 +372,6 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
                 
                 # Store skill in PostgreSQL
                 storage.store_skill(str(user.id), language, 'language')
-                
-                skill_query = """
-                MATCH (p:Project {id: $project_id})
-                MATCH (u:User {id: $user_id})
-                MERGE (s:Skill {name: $skill_name})
-                ON CREATE SET 
-                    s.id = $skill_id,
-                    s.category = 'language'
-                MERGE (p)-[:USES {confidence: 0.9}]->(s)
-                MERGE (u)-[:HAS_SKILL]->(s)
-                """
-                
-                await neo4j_session.run(
-                    skill_query,
-                    project_id=project_id,
-                    user_id=str(user.id),
-                    skill_name=language,
-                    skill_id=str(uuid.uuid4())
-                )
             
             # Infer skills from topics
             if repo.get("topics"):
@@ -476,25 +380,6 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
                     
                     # Store skill in PostgreSQL
                     storage.store_skill(str(user.id), topic, 'technology')
-                    
-                    topic_query = """
-                    MATCH (p:Project {id: $project_id})
-                    MATCH (u:User {id: $user_id})
-                    MERGE (s:Skill {name: $skill_name})
-                    ON CREATE SET 
-                        s.id = $skill_id,
-                        s.category = 'technology'
-                    MERGE (p)-[:USES {confidence: 0.8}]->(s)
-                    MERGE (u)-[:HAS_SKILL]->(s)
-                    """
-                    
-                    await neo4j_session.run(
-                        topic_query,
-                        project_id=project_id,
-                        user_id=str(user.id),
-                        skill_name=topic,
-                        skill_id=str(uuid.uuid4())
-                    )
         
         # ===== FETCH COMPREHENSIVE USER METRICS =====
         
@@ -518,32 +403,9 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
         )
         orgs = orgs_response.json() if orgs_response.status_code == 200 else []
         
-        # Create organization nodes and relationships
+        # Store organizations in PostgreSQL
         for org in orgs:
-            # Store in PostgreSQL
             storage.store_organization(str(user.id), org)
-            
-            org_query = """
-            MATCH (u:User {id: $user_id})
-            MERGE (o:Organization {login: $org_login})
-            ON CREATE SET 
-                o.id = $org_id,
-                o.name = $org_name,
-                o.description = $org_description,
-                o.url = $org_url
-            MERGE (u)-[r:MEMBER_OF]->(o)
-            ON CREATE SET r.joined_at = datetime()
-            """
-            
-            await neo4j_session.run(
-                org_query,
-                user_id=str(user.id),
-                org_id=str(uuid.uuid4()),
-                org_login=org.get("login"),
-                org_name=org.get("name", org.get("login")),
-                org_description=org.get("description", ""),
-                org_url=org.get("html_url")
-            )
         
         # 3. Get contribution stats from user events
         events_response = await client.get(
@@ -586,75 +448,13 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
         )
         starred_repos = starred_response.json() if starred_response.status_code == 200 else []
         
-        # Create STARRED relationships for notable repos (>1000 stars)
+        # Store starred repositories in PostgreSQL
         for starred_repo in starred_repos:
             if starred_repo.get("stargazers_count", 0) > 1000:
-                # Store in PostgreSQL
                 storage.store_starred_repo(str(user.id), starred_repo)
-                
-                starred_query = """
-                MATCH (u:User {id: $user_id})
-                MERGE (p:Project {url: $url})
-                ON CREATE SET 
-                    p.id = $project_id,
-                    p.name = $name,
-                    p.description = $description,
-                    p.stars = $stars,
-                    p.source = 'github_starred'
-                MERGE (u)-[r:STARRED]->(p)
-                ON CREATE SET r.starred_at = datetime()
-                """
-                
-                await neo4j_session.run(
-                    starred_query,
-                    user_id=str(user.id),
-                    project_id=str(uuid.uuid4()),
-                    url=starred_repo["html_url"],
-                    name=starred_repo["name"],
-                    description=starred_repo.get("description", ""),
-                    stars=starred_repo.get("stargazers_count", 0)
-                )
         
-        # 5. Store user metrics on the user node
-        # Store profile in PostgreSQL
+        # Store user profile in PostgreSQL
         storage.store_user_profile(str(user.id), github_username, github_profile)
-        
-        metrics_query = """
-        MATCH (u:User {id: $user_id})
-        SET 
-            u.github_followers = $followers,
-            u.github_following = $following,
-            u.github_public_repos = $public_repos,
-            u.github_public_gists = $public_gists,
-            u.github_created_at = datetime($created_at),
-            u.github_bio = $bio,
-            u.github_company = $company,
-            u.github_location = $location,
-            u.github_blog = $blog,
-            u.recent_commits = $commits,
-            u.recent_prs = $prs,
-            u.recent_issues = $issues,
-            u.recent_reviews = $reviews,
-            u.last_synced = datetime()
-        """
-        
-        await neo4j_session.run(
-            metrics_query,
-            user_id=str(user.id),
-            followers=github_profile.get("followers", 0),
-            following=github_profile.get("following", 0),
-            public_repos=github_profile.get("public_repos", 0),
-            public_gists=github_profile.get("public_gists", 0),
-            created_at=github_profile.get("created_at"),
-            bio=github_profile.get("bio", ""),
-            company=github_profile.get("company", ""),
-            location=github_profile.get("location", ""),
-            blog=github_profile.get("blog", ""),
-            commits=contribution_stats["commits"],
-            prs=contribution_stats["pull_requests"],
-            issues=contribution_stats["issues"],
-            reviews=contribution_stats["reviews"]
-        )
         
         # 6. Fetch user-specific contribution metrics for each repo
         try:
@@ -670,7 +470,7 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
             logger.info("Fetching monthly metrics for all repositories...")
             monthly_metrics = await monthly_metrics_service.fetch_all_repos_monthly_metrics(repos, months_back=12)
             
-            # Store metrics in both Neo4j and PostgreSQL
+            # Store metrics in PostgreSQL
             for repo_name, metrics in user_metrics.items():
                 # Find repo_id from repos list
                 repo_data = next((r for r in repos if r['full_name'] == repo_name), None)
@@ -682,32 +482,6 @@ async def sync_github_repos(user: User, access_token: str, neo4j_session, github
                 
                 # Store in PostgreSQL (repo already stored above, just store metrics)
                 storage.store_user_metrics(str(user.id), repo_id, metrics)
-                
-                # Store in Neo4j
-                update_metrics_query = """
-                MATCH (p:Project {name: $repo_name})
-                WHERE p.source = 'github'
-                SET 
-                    p.user_commits = $commits,
-                    p.user_additions = $additions,
-                    p.user_deletions = $deletions,
-                    p.user_prs_opened = $prs_opened,
-                    p.user_prs_merged = $prs_merged,
-                    p.user_issues_opened = $issues_opened,
-                    p.user_reviews_given = $reviews_given
-                """
-                
-                await neo4j_session.run(
-                    update_metrics_query,
-                    repo_name=repo_short_name,
-                    commits=metrics.get('commits', 0),
-                    additions=metrics.get('additions', 0),
-                    deletions=metrics.get('deletions', 0),
-                    prs_opened=metrics.get('prs_opened', 0),
-                    prs_merged=metrics.get('prs_merged', 0),
-                    issues_opened=metrics.get('issues_opened', 0),
-                    reviews_given=metrics.get('reviews_given', 0)
-                )
             
             # Store monthly metrics in PostgreSQL
             logger.info("Storing monthly metrics...")

@@ -4,7 +4,6 @@ uvicorn==0.38.0
 python-multipart==0.0.20
 
 # Database
-neo4j==6.0.2
 psycopg2-binary==2.9.11
 sqlalchemy==2.0.44
 

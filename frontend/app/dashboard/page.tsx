@@ -1068,7 +1068,7 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle className="text-3xl font-serif">Your Professional Graph</CardTitle>
               <CardDescription>
-                Visualize the connections between your projects, skills, and experience
+                Interactive visualization of your professional connections (Coming Soon)
               </CardDescription>
             </CardHeader>
             <CardContent>

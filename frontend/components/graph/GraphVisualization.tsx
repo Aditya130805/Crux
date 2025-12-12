@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import cytoscape, { Core, NodeSingular } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { motion } from 'framer-motion'
-import { ZoomIn, ZoomOut, Maximize2, RefreshCw } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2, RefreshCw, Network as NetworkIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // Register layout
@@ -369,15 +369,39 @@ export default function GraphVisualization({
         </motion.div>
       )}
 
-      {/* Empty State */}
+      {/* Empty State / Coming Soon */}
       {nodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-slate-400 text-lg mb-2">No graph data yet</p>
-            <p className="text-slate-500 text-sm">
-              Add projects, skills, or experience to see your graph
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+          <motion.div 
+            className="text-center px-8"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <motion.div
+              className="mb-6"
+              animate={{ 
+                scale: [1, 1.1, 1],
+                rotate: [0, 5, -5, 0]
+              }}
+              transition={{ 
+                duration: 3,
+                repeat: Infinity,
+                repeatType: "reverse"
+              }}
+            >
+              <NetworkIcon className="h-16 w-16 text-[rgb(var(--primary))] mx-auto mb-4 opacity-60" />
+            </motion.div>
+            <h3 className="text-2xl font-serif font-bold text-[rgb(var(--foreground))] mb-3">
+              Graph Visualization
+            </h3>
+            <p className="text-[rgb(var(--muted-foreground))] text-lg mb-2">
+              Feature Coming Soon
             </p>
-          </div>
+            <p className="text-[rgb(var(--muted-foreground))] text-sm max-w-md mx-auto">
+              We're building an interactive graph to visualize your professional connections, projects, and skills. Stay tuned!
+            </p>
+          </motion.div>
         </div>
       )}
     </div>

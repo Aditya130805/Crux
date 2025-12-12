@@ -8,7 +8,7 @@ from openai import AsyncOpenAI
 import json
 from datetime import datetime
 
-from database import get_db, get_neo4j_session, get_redis
+from database import get_db, get_redis
 from models import User, AISummary
 from schemas import AISummaryResponse
 from auth_utils import get_current_user
@@ -20,48 +20,57 @@ router = APIRouter()
 openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 
-async def collect_user_context(user_id: str, neo4j_session) -> dict:
+async def collect_user_context(user_id: str, db: Session) -> dict:
     """
-    Gather all graph data for AI summarization
+    Gather all graph data for AI summarization from PostgreSQL
     """
-    query = """
-    MATCH (u:User {id: $user_id})
-    OPTIONAL MATCH (u)-[:CREATED]->(p:Project)
-    OPTIONAL MATCH (u)-[:HAS_SKILL]->(s:Skill)
-    OPTIONAL MATCH (u)-[w:WORKED_AT]->(o:Organization)
-    RETURN u, 
-           collect(DISTINCT {
-               name: p.name, 
-               description: p.description,
-               stars: p.stars
-           }) as projects,
-           collect(DISTINCT {
-               name: s.name,
-               category: s.category
-           }) as skills,
-           collect(DISTINCT {
-               organization: o.name,
-               title: w.title,
-               start_date: w.start_date,
-               end_date: w.end_date,
-               current: w.current
-           }) as experience
-    """
+    from models import UserProfile
+    from services.integrations.github_storage import GitHubMetricsStorage
+    from config import settings
+    from uuid import UUID
     
-    result = await neo4j_session.run(query, user_id=user_id)
-    record = await result.single()
+    # Get user profile data (user_id is a string UUID, need to convert for query)
+    try:
+        user_uuid = UUID(user_id)
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user_uuid).first()
+    except ValueError:
+        profile = None
     
-    if not record:
-        return {
-            "projects": [],
-            "skills": [],
-            "experience": []
-        }
+    # Get GitHub repositories
+    storage = GitHubMetricsStorage(settings.DATABASE_URL)
+    repos = storage.get_user_repositories(user_id)
     
-    # Filter out None values
-    projects = [p for p in record["projects"] if p.get("name")]
-    skills = [s for s in record["skills"] if s.get("name")]
-    experience = [e for e in record["experience"] if e.get("organization")]
+    projects = []
+    skills = []
+    experience = []
+    
+    # Extract projects from GitHub repos
+    for repo in repos[:10]:  # Limit to top 10
+        projects.append({
+            "name": repo.get("repo_name", ""),
+            "description": repo.get("description", ""),
+            "stars": repo.get("stars", 0)
+        })
+    
+    # Extract skills from repos (languages)
+    languages = set()
+    for repo in repos:
+        if repo.get("language"):
+            languages.add(repo["language"])
+    
+    skills = [{"name": lang, "category": "language"} for lang in list(languages)[:20]]
+    
+    # Extract experience from user profile if available
+    if profile and profile.experiences:
+        for exp in profile.experiences[:5]:
+            if isinstance(exp, dict):
+                experience.append({
+                    "organization": exp.get("company", ""),
+                    "title": exp.get("title", ""),
+                    "start_date": exp.get("startDate", ""),
+                    "end_date": exp.get("endDate", ""),
+                    "current": exp.get("isPresent", False)
+                })
     
     return {
         "projects": projects,
@@ -156,7 +165,6 @@ async def create_ai_summary(
     username: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    neo4j_session = Depends(get_neo4j_session),
     cache = Depends(get_redis)
 ):
     """
@@ -176,8 +184,8 @@ async def create_ai_summary(
             cached_data = json.loads(cached_summary)
             return AISummaryResponse(**cached_data)
     
-    # Collect user context from graph
-    context = await collect_user_context(str(current_user.id), neo4j_session)
+    # Collect user context from PostgreSQL
+    context = await collect_user_context(str(current_user.id), db)
     
     # Check if user has enough data
     if not context["projects"] and not context["skills"] and not context["experience"]:

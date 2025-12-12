@@ -389,7 +389,7 @@ export default function ProfilePage() {
                   </h2>
                 </div>
                 <p className="text-[rgb(var(--muted-foreground))] ml-8">
-                  Explore the connections between projects, skills, and experience
+                  Interactive visualization of professional connections (Coming Soon)
                 </p>
               </div>
               <div className="h-[700px] rounded-xl overflow-hidden bg-[rgb(var(--muted))]/30">

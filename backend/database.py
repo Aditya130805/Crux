@@ -1,5 +1,5 @@
 """
-Database connection management for PostgreSQL and Neo4j
+Database connection management for PostgreSQL
 """
 
 import logging
@@ -11,7 +11,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.engine import Engine
 from sqlalchemy import event
-from neo4j import AsyncGraphDatabase, AsyncDriver
 import redis.asyncio as redis
 
 from config import settings
@@ -42,31 +41,13 @@ def set_isolation_level(dbapi_conn, connection_record):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Neo4j driver
-neo4j_driver: Optional[AsyncDriver] = None
-
 # Redis client
 redis_client: Optional[redis.Redis] = None
 
 
 async def init_databases():
     """Initialize database connections"""
-    global neo4j_driver, redis_client
-    
-    # Initialize Neo4j
-    try:
-        neo4j_driver = AsyncGraphDatabase.driver(
-            settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
-        )
-        # Test connection
-        async with neo4j_driver.session() as session:
-            result = await session.run("RETURN 1")
-            await result.single()
-        logger.info("Neo4j connection established")
-    except Exception as e:
-        logger.error(f"Failed to connect to Neo4j: {e}")
-        raise
+    global redis_client
     
     # Initialize Redis
     try:
@@ -88,11 +69,7 @@ async def init_databases():
 
 async def close_databases():
     """Close database connections"""
-    global neo4j_driver, redis_client
-    
-    if neo4j_driver:
-        await neo4j_driver.close()
-        logger.info("Neo4j connection closed")
+    global redis_client
     
     if redis_client:
         await redis_client.close()
@@ -123,18 +100,6 @@ def get_db() -> Session:
         raise
     finally:
         db.close()
-
-
-async def get_neo4j_session():
-    """
-    Dependency for getting Neo4j session
-    Usage: neo4j = Depends(get_neo4j_session)
-    """
-    if not neo4j_driver:
-        raise RuntimeError("Neo4j driver not initialized")
-    
-    async with neo4j_driver.session() as session:
-        yield session
 
 
 async def get_redis():

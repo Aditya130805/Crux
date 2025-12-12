@@ -77,8 +77,7 @@ async def health_check():
     """Detailed health check"""
     return {
         "status": "healthy",
-        "database": "connected",
-        "graph_db": "connected"
+        "database": "connected"
     }
 
 

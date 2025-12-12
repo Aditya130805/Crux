@@ -24,8 +24,7 @@ Transform your professional identity into an interactive knowledge graph. Connec
 ### Backend
 - **FastAPI** (Python 3.11+)
 - **PostgreSQL** - User authentication & metadata
-- **Neo4j** - Graph database
-- **Redis** - Caching
+- **Redis** - Caching (optional)
 - **OpenAI GPT-4** - AI summarization
 - **GitHub API** - Repository integration
 
@@ -36,7 +35,6 @@ Transform your professional identity into an interactive knowledge graph. Connec
 - Node.js 18+ and npm
 - Python 3.11+
 - PostgreSQL
-- Neo4j
 - Redis (optional, for caching)
 
 ### Backend Setup
@@ -66,9 +64,6 @@ cp .env.example .env
 Required environment variables:
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/crux
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your-password
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=your-secret-key
 GITHUB_CLIENT_ID=your-github-client-id
@@ -127,12 +122,6 @@ CREATE DATABASE crux;
 ```
 
 2. Tables will be created automatically by SQLAlchemy on first run.
-
-### Neo4j
-
-1. Install Neo4j Desktop or use Neo4j Aura (cloud)
-2. Create a new database
-3. Update `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` in `.env`
 
 ### Redis (Optional)
 
@@ -220,8 +209,7 @@ Crux is inspired by [Bond](https://bondapp.io) with a focus on:
 ### Databases
 
 - **PostgreSQL:** Use Supabase or Railway
-- **Neo4j:** Use Neo4j Aura (free tier available)
-- **Redis:** Use Upstash or Railway
+- **Redis:** Use Upstash or Railway (optional)
 
 ## 📝 Usage
 

@@ -18,11 +18,6 @@ class Settings(BaseSettings):
     # PostgreSQL Database
     DATABASE_URL: str
     
-    # Neo4j Graph Database
-    NEO4J_URI: str
-    NEO4J_USER: str
-    NEO4J_PASSWORD: str
-    
     # Redis Cache
     REDIS_URL: str = "redis://localhost:6379"
     

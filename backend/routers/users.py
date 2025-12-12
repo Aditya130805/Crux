@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import logging
 
-from database import get_db, get_neo4j_session
+from database import get_db
 from models import User, UserProfile
 from schemas import UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse
 from auth_utils import get_current_user
@@ -139,51 +139,23 @@ async def update_user_profile(
 @router.delete("/account", status_code=status.HTTP_200_OK)
 async def delete_account(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    neo4j_session = Depends(get_neo4j_session)
+    db: Session = Depends(get_db)
 ):
     """
     Delete user account and all associated data
     This will permanently delete:
     - User profile and settings
     - All GitHub integration data
-    - All graph data in Neo4j
     - All AI summaries
     """
     user_id = str(current_user.id)
     username = current_user.username
     
     try:
-        # 1. GitHub data will be automatically deleted via CASCADE foreign key constraints
+        # GitHub data will be automatically deleted via CASCADE foreign key constraints
         logger.info(f"Deleting user {user_id} (GitHub data will cascade)")
-        # No manual deletion needed - foreign key constraints handle it automatically
         
-        # 2. Delete all user data from Neo4j
-        logger.info(f"Deleting Neo4j data for user {user_id}")
-        try:
-            # Delete user node and all its relationships
-            # Use DETACH DELETE to remove all relationships automatically
-            delete_query = """
-            MATCH (u:User {id: $user_id})
-            DETACH DELETE u
-            """
-            await neo4j_session.run(delete_query, user_id=user_id)
-            
-            # Also delete any projects, skills, or organizations that were exclusively created by this user
-            # This is a cleanup step to remove orphaned nodes
-            cleanup_query = """
-            // Delete projects that have no remaining CREATED relationships
-            MATCH (p:Project)
-            WHERE NOT EXISTS { (u:User)-[:CREATED]->(p) }
-            DETACH DELETE p
-            """
-            await neo4j_session.run(cleanup_query)
-            logger.info(f"✅ Deleted Neo4j data for user {user_id}")
-        except Exception as e:
-            logger.error(f"Error deleting Neo4j data: {e}")
-            # Continue with deletion even if Neo4j cleanup fails
-        
-        # 3. Delete user from PostgreSQL
+        # Delete user from PostgreSQL
         # Cascades automatically to UserProfile, AISummary, and all GitHub tables via foreign keys
         # This is a critical transaction: all related data must be deleted atomically
         logger.info(f"Deleting user {user_id} from PostgreSQL (will cascade to related tables)")
