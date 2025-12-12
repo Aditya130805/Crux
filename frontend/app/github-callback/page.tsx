@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { integrationAPI } from '@/lib/api'
 
-export default function GitHubCallbackPage() {
+function GitHubCallbackHandler() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -49,4 +49,12 @@ export default function GitHubCallbackPage() {
 
   // Show nothing - just redirect
   return null
+}
+
+export default function GitHubCallbackPage() {
+  return (
+    <Suspense fallback={null}>
+      <GitHubCallbackHandler />
+    </Suspense>
+  )
 }
