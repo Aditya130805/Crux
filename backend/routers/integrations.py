@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 import httpx
 import uuid
 import logging
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 
 from database import get_db
 from models import User
@@ -24,14 +25,35 @@ router = APIRouter()
 
 
 @router.get("/github/authorize", response_model=GitHubAuthResponse)
-async def github_authorize(current_user: User = Depends(get_current_user)):
+async def github_authorize(
+    current_user: User = Depends(get_current_user),
+    frontend_url: Optional[str] = None
+):
     """
     Get GitHub OAuth authorization URL
+    Accepts optional frontend_url query parameter to dynamically set redirect_uri
     """
+    # Determine redirect URI - use frontend_url if provided, otherwise use default from config
+    if frontend_url:
+        # Validate URL format
+        try:
+            parsed = urlparse(frontend_url)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError("Invalid URL format")
+            # Ensure frontend_url doesn't have trailing slash and add callback path
+            frontend_url = frontend_url.rstrip('/')
+            redirect_uri = f"{frontend_url}/api/auth/callback/github"
+        except (ValueError, AttributeError):
+            # If invalid URL, fall back to default
+            logger.warning(f"Invalid frontend_url provided: {frontend_url}, using default")
+            redirect_uri = settings.GITHUB_REDIRECT_URI
+    else:
+        redirect_uri = settings.GITHUB_REDIRECT_URI
+    
     auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={settings.GITHUB_CLIENT_ID}"
-        f"&redirect_uri={settings.GITHUB_REDIRECT_URI}"
+        f"&redirect_uri={redirect_uri}"
         f"&scope=read:user,read:org,repo"
         f"&state={str(current_user.id)}"
     )
@@ -48,6 +70,23 @@ async def github_callback(
     """
     Handle GitHub OAuth callback - just connect the account, don't sync data yet
     """
+    # Determine redirect URI - use frontend_url from callback_data if provided
+    if callback_data.frontend_url:
+        # Validate URL format
+        try:
+            parsed = urlparse(callback_data.frontend_url)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError("Invalid URL format")
+            # Ensure frontend_url doesn't have trailing slash and add callback path
+            frontend_url = callback_data.frontend_url.rstrip('/')
+            redirect_uri = f"{frontend_url}/api/auth/callback/github"
+        except (ValueError, AttributeError):
+            # If invalid URL, fall back to default
+            logger.warning(f"Invalid frontend_url in callback: {callback_data.frontend_url}, using default")
+            redirect_uri = settings.GITHUB_REDIRECT_URI
+    else:
+        redirect_uri = settings.GITHUB_REDIRECT_URI
+    
     async with httpx.AsyncClient() as client:
         # Exchange code for access token
         token_response = await client.post(
@@ -56,7 +95,7 @@ async def github_callback(
                 "client_id": settings.GITHUB_CLIENT_ID,
                 "client_secret": settings.GITHUB_CLIENT_SECRET,
                 "code": callback_data.code,
-                "redirect_uri": settings.GITHUB_REDIRECT_URI
+                "redirect_uri": redirect_uri
             },
             headers={"Accept": "application/json"}
         )

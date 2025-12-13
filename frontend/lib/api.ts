@@ -72,11 +72,40 @@ export const graphAPI = {
 
 // Integration endpoints
 export const integrationAPI = {
-  githubAuthorize: () =>
-    api.get('/api/integrations/github/authorize'),
+  githubAuthorize: (frontendUrl?: string) => {
+    // Get frontend URL: parameter > window.location.origin > env var > fallback
+    let url: string;
+    if (frontendUrl) {
+      url = frontendUrl;
+    } else if (typeof window !== 'undefined' && window.location.origin) {
+      url = window.location.origin;
+    } else if (process.env.NEXT_PUBLIC_FRONTEND_URL) {
+      url = process.env.NEXT_PUBLIC_FRONTEND_URL;
+    } else {
+      url = 'http://localhost:3000';
+    }
+    return api.get('/api/integrations/github/authorize', {
+      params: { frontend_url: url }
+    });
+  },
   
-  githubCallback: (data: { code: string; state?: string }) =>
-    api.post('/api/integrations/github/callback', data),
+  githubCallback: (data: { code: string; state?: string; frontend_url?: string }) => {
+    // Get frontend URL: data.frontend_url > window.location.origin > env var > fallback
+    let frontendUrl: string;
+    if (data.frontend_url) {
+      frontendUrl = data.frontend_url;
+    } else if (typeof window !== 'undefined' && window.location.origin) {
+      frontendUrl = window.location.origin;
+    } else if (process.env.NEXT_PUBLIC_FRONTEND_URL) {
+      frontendUrl = process.env.NEXT_PUBLIC_FRONTEND_URL;
+    } else {
+      frontendUrl = 'http://localhost:3000';
+    }
+    return api.post('/api/integrations/github/callback', {
+      ...data,
+      frontend_url: frontendUrl
+    });
+  },
   
   githubSync: () =>
     api.post('/api/integrations/github/sync'),

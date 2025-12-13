@@ -192,6 +192,7 @@ class GitHubAuthResponse(BaseModel):
 class GitHubCallbackRequest(BaseModel):
     code: str
     state: Optional[str] = None
+    frontend_url: Optional[str] = None  # Frontend URL used in authorize request
 
 
 class GitHubSyncResponse(BaseModel):
