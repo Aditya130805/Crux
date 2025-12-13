@@ -10,6 +10,7 @@ import logging
 
 from routers import auth, users, graph, integrations, ai
 from database import init_databases, close_databases
+from config import settings
 
 # Configure logging
 logging.basicConfig(
@@ -38,13 +39,12 @@ app = FastAPI(
 )
 
 # CORS configuration
-# Build CORS origins list from config
-cors_origins = settings.CORS_ORIGINS.copy()
-if settings.CORS_ORIGINS_EXTRA:
-    # Add extra origins from environment variable (comma-separated)
-    # Example: CORS_ORIGINS_EXTRA=https://app.vercel.app,https://crux.io
-    extra_origins = [origin.strip() for origin in settings.CORS_ORIGINS_EXTRA.split(",") if origin.strip()]
-    cors_origins.extend(extra_origins)
+# Parse comma-separated CORS origins from environment variable
+cors_origins = [
+    origin.strip() 
+    for origin in settings.CORS_ORIGINS.split(",") 
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
